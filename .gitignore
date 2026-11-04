@@ -1,3 +1,14 @@
+# environment
 .venv/
+# python
 __pycache__/
 *.pyc
+*.egg-info/
+# jupyter
+.ipynb_checkpoints/
+# experiment outputs (large; reproducible from code)
+results/
+*.pt
+*.pickle
+# macOS
+.DS_Store
