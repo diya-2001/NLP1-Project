@@ -40,12 +40,16 @@ def run_system(rep, arch, C, Y, folds: dict, results_dir: Path, rerun=False, n_t
     """All seeds x folds for one system, with caching. ``folds`` = {seed: [(train_idx, val_idx), ...]}."""
     name = system_name(rep, arch) + tag
     path = Path(results_dir) / f"{name}.pkl"
+    settings = {**models.DEFAULTS[arch], **(hp or {})}
     if path.exists() and not rerun:
         with open(path, "rb") as f:
             res = pickle.load(f)
-        if set(res["oof"]) == set(folds) and len(res["oof"][next(iter(folds))]) == len(Y):
+        same_folds = set(res["oof"]) == set(folds) and len(res["oof"][next(iter(folds))]) == len(Y)
+        same_settings = res.get("hp") == settings      # a changed model or setting must not reuse old results
+        if same_folds and same_settings:
             return res
-        print(f"[{name}] cache does not match the current folds -> retraining")
+        print(f"[{name}] cache does not match the current {'folds' if not same_folds else 'model settings'}"
+              " -> retraining")
 
     rows, oof, history = [], {}, {}
     for seed, fold_list in folds.items():

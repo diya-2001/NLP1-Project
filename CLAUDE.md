@@ -23,6 +23,17 @@ Repo `diya-2001/NLP1-Project`; branches `main`, `isha-working`, `diya-working`, 
 - VS Code may hold **unsaved notebook edits**: check the file's mtime vs. recent outputs before
   editing `notebooks/*.ipynb`, and ask Isha to save first.
 
+## Oral prep material (made 2026-11-06)
+- Study guides (Claude Docs): Project 1 Study Guide https://claude.ai/artifact/L1Mjd8RSgDbZfS2zKBWWNX ·
+  Tutorial 1 Concepts and Questions https://claude.ai/artifact/JkNEv1RtAf3KgYLddXbVhx
+- Quick (skim) versions: Project 1 Quick Guide https://claude.ai/artifact/2u2cxpQxVJTjvXL6mJrDLa ·
+  Tutorial 1 Quick Guide https://claude.ai/artifact/581RA1YiponF6p9WbCGr5R
+- PDF snapshots of all four guides (exported 2026-11-09): `docs/guides/*.pdf` — re-export if the docs change.
+- Oral slide deck (7 slides, Slides type): https://claude.ai/artifact/7nq9J7hr8YrYf25BkeQ1XC
+- Oral format: 15 min per group, 2 questions per student (one per "Get to work!" item + a follow-up,
+  can be about the tutorial); slides = overview + one per Get-to-work item 2–6 (+1 extra), max 7, PDF by
+  Friday 23:59, mandatory, not graded, no written-out answers.
+
 ## Assignment (Project 1)
 3 representations × 3 architectures, compared by cross-validation with a relevant metric and
 Bayesian estimation with a motivated ROPE. Oral the week after the deadline; up to 5 backup slides
@@ -53,14 +64,19 @@ final blog → reproducible code, documented sources and AI use. Brief: `src/par
 - Task: 28-way occupation from `hard_text`. **Gender never a model input** — evaluation only.
 - Grid `{arch}_{rep}`: reps `indicator`, `bow`, `tfidf` (ours: sublinear tf × idf, L2-norm, **idf
   fit on the training fold only**); archs `loglin` (sklearn, CSR), `mlp` (tutorial `SparseMLP`),
-  `deep` (ours: 2 hidden layers ~256→128, ReLU, dropout ~0.3, sparse first layer). Fallback: L-shape.
+  `deep` (ours, v2 by a teammate on 2026-11-06: sparse 10k→128 + LayerNorm + ReLU, then a residual
+  128→128 block with LayerNorm, ReZero alpha starting at 0, dropout 0.3, 20% input-token dropout;
+  1,300,765 weights). v1 (plain 256→128 stack, 2.6M weights) scored below the MLP (0.735 vs 0.750 mean,
+  worst on TF-IDF) because TF-IDF's tiny scale starved layer 2; v2 matches the MLP.
+  `models.DEVICE` = CUDA if available else CPU (loglin always CPU).
+- `cv.run_system` cache is reused only if folds AND model settings (`hp`) match.
 - Metrics: **macro-F1** primary; also accuracy, balanced accuracy. Fairness: per-occupation TPR gap
   (female − male recall) and RMS over occupations, on pooled out-of-fold predictions, cells ≥ 10.
 - Splits: CV only inside `train` (dev/test untouched this week); `dedup` (drop the 15 conflicting
   texts entirely, keep one copy of other duplicates) = 257,081 bios; **`POOL_SIZE=None` (full dedup)**,
   **`N_FOLDS=3`, `SEEDS=[0,1]`** = 6 scores/system (Isha found 5×3 ≈ 1.5 h too heavy; 3×2 ≈ 30 min; cost:
   Nadeau–Bengio factor 1/6+1/2 vs 1/15+1/4 → wider posteriors); `StratifiedKFold` on `Y*2+G`;
-  folds in `results/week1/splits.json` (reload with `bib.data.load_pool`). Old 5-fold files in `results/week1/archive_5fold/`.
+  folds in `results/week1/splits.json` (reload with `bib.data.load_pool`).
 - Tuning: one knob per system (loglin `C` ∈ {0.3,1,3}; MLPs lr ∈ {1e-3,3e-3}) on an inner 90/10 split of
   seed-0/fold-0 training data → `results/week1/tuned_hparams.json`. Reason: TF-IDF rows have norm 1 vs ~9
   for counts, so a shared C/lr could be unfair. (5-fold run with C ∈ {1,10,100} picked C=1 everywhere at

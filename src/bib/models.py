@@ -2,7 +2,11 @@
 
 A1 loglin : multinomial logistic (softmax) regression, scikit-learn, sparse input.
 A2 mlp    : the tutorial's one-hidden-layer ``part1.smlp.SparseMLP`` (reused unchanged).
-A3 deep   : ours, two hidden layers with a sparse first layer.
+A3 deep   : ours, the MLP plus one residual, LayerNorm-ed hidden layer (sparse first layer,
+            input token dropout).
+
+The neural models (A2, A3) run on ``DEVICE``: the GPU (CUDA) if there is one, otherwise the CPU.
+The notebook may overwrite it (``models.DEVICE = ...``). A1 always runs on the CPU (sklearn).
 
 Neural models are trained with our own loop (``train_torch``) because the tutorial's
 ``train_neural_network_model`` (a) builds a dense vector per document (≈8 GB for our pool) and
@@ -29,37 +33,65 @@ from part1.smlp import SparseMLP   # tutorial code, reused as-is
 
 ARCHITECTURES = ("loglin", "mlp", "deep")
 
+# Where the neural models train and predict. Read at call time, so setting models.DEVICE works.
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 # Default hyperparameters (one place, so the notebook can print and justify them).
 DEFAULTS = {
     "loglin": dict(C=1.0, max_iter=500),
     "mlp":    dict(hidden=128, dropout=0.1, lr=1e-3, weight_decay=1e-4, batch_size=128,
                    max_epochs=20, patience=3, inner_frac=0.1),
-    "deep":   dict(hidden=(256, 128), dropout=0.3, lr=1e-3, weight_decay=1e-4, batch_size=128,
-                   max_epochs=20, patience=3, inner_frac=0.1),
+    "deep":   dict(hidden=(128, 128), dropout=0.3, input_dropout=0.2, rezero=True, lr=1e-3,
+                   weight_decay=1e-4, batch_size=128, max_epochs=20, patience=3, inner_frac=0.1),
 }
 
 
 # --------------------------------------------------------------------------- A3 network
 class DeepSparseMLP(nn.Module):
-    """Two hidden layers. Layer 1 multiplies the sparse input directly (like SparseMLP).
+    """The MLP plus one residual hidden layer. Layer 1 multiplies the sparse input directly (like SparseMLP).
 
-    sparse h(x) --[V x H1]--> ReLU, dropout --[H1 x H2]--> ReLU, dropout --[H2 x K]--> log-softmax
+    sparse h(x) --token dropout--> [V x H] --> LayerNorm, ReLU, dropout = z1
+    z2 = z1 + dropout(ReLU(LayerNorm([H x H] z1)))          (residual shortcut; with rezero: z1 + alpha * ...)
+    z2 --[H x K]--> log-softmax
+
+    Why each piece (our first version, a plain 256 -> 128 stack, scored below the MLP, worst on TF-IDF):
+    - LayerNorm: TF-IDF rows have length 1 (counts ~9.7), so the bio-dependent signal reaching layer 2
+      was tiny next to the biases; normalising makes the model behave the same for every representation.
+    - Residual shortcut: if the extra layer learns nothing useful, the model reduces to the MLP.
+    - Input token dropout: hides a random share of each bio's tokens while training, which regularises the
+      first layer (the 10,000 x H word lists, >90% of all weights) directly.
+    - ReZero (optional, Bachlechner et al. 2020): the extra layer is multiplied by a learnable alpha that
+      starts at 0, so training starts from exactly an MLP and only uses the extra layer as far as it helps.
     """
 
-    def __init__(self, input_dim: int, hidden=(256, 128), num_classes: int = 28, dropout: float = 0.3):
+    def __init__(self, input_dim: int, hidden=(128, 128), num_classes: int = 28, dropout: float = 0.3,
+                 input_dropout: float = 0.2, rezero: bool = False):
         super().__init__()
         h1, h2 = hidden
+        if h1 != h2:
+            raise ValueError("the residual shortcut needs equal hidden sizes, e.g. (128, 128)")
         self.weight = nn.Parameter(torch.empty(input_dim, h1))
         self.bias = nn.Parameter(torch.zeros(h1))
         nn.init.xavier_uniform_(self.weight)
-        self.rest = nn.Sequential(
-            nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(h1, h2), nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(h2, num_classes), nn.LogSoftmax(dim=-1),
-        )
+        self.norm1 = nn.LayerNorm(h1)
+        self.block = nn.Sequential(nn.Linear(h1, h2), nn.LayerNorm(h2), nn.ReLU(), nn.Dropout(dropout))
+        self.drop = nn.Dropout(dropout)
+        self.out = nn.Sequential(nn.Linear(h2, num_classes), nn.LogSoftmax(dim=-1))
+        self.input_dropout = input_dropout
+        self.alpha = nn.Parameter(torch.zeros(1)) if rezero else None
+
+    def _drop_tokens(self, x):
+        """Training only: remove each non-zero input entry (a token of a bio) with prob. input_dropout."""
+        x = x.coalesce()
+        keep = torch.rand_like(x.values()) >= self.input_dropout
+        return torch.sparse_coo_tensor(x.indices()[:, keep], x.values()[keep], x.shape)
 
     def forward(self, x):
-        return self.rest(torch.sparse.mm(x, self.weight) + self.bias)
+        if self.training and self.input_dropout > 0:
+            x = self._drop_tokens(x)
+        z1 = self.drop(torch.relu(self.norm1(torch.sparse.mm(x, self.weight) + self.bias)))
+        z2 = z1 + (self.alpha * self.block(z1) if self.alpha is not None else self.block(z1))
+        return self.out(z2)
 
 
 def n_params(model: nn.Module) -> int:
@@ -76,7 +108,8 @@ def param_count(arch: str, V: int, K: int = 28, **hp) -> int:
         return V * H + H + H * K + K
     if arch == "deep":
         h1, h2 = hp["hidden"]
-        return V * h1 + h1 + h1 * h2 + h2 + h2 * K + K
+        # layer 1 + LayerNorm (2*h1) + residual layer + LayerNorm (2*h2) + output layer
+        return V * h1 + h1 + 2 * h1 + h1 * h2 + h2 + 2 * h2 + h2 * K + K + int(hp["rezero"])  # + alpha
     raise ValueError(arch)
 
 
@@ -93,14 +126,14 @@ def _batches(X: sp.csr_matrix, y: np.ndarray, batch_size: int, rng=None):
     order = rng.permutation(X.shape[0]) if rng is not None else np.arange(X.shape[0])
     for i in range(0, len(order), batch_size):
         idx = order[i:i + batch_size]
-        yield csr_to_torch(X[idx]), torch.as_tensor(y[idx], dtype=torch.long)
+        yield csr_to_torch(X[idx]).to(DEVICE), torch.as_tensor(y[idx], dtype=torch.long).to(DEVICE)
 
 
 @torch.no_grad()
 def _predict_logprobs(model, X, batch_size=1024):
     model.eval()
     dummy = np.zeros(X.shape[0], dtype=np.int64)
-    return torch.cat([model(xb) for xb, _ in _batches(X, dummy, batch_size)]).numpy()
+    return torch.cat([model(xb).cpu() for xb, _ in _batches(X, dummy, batch_size)]).numpy()
 
 
 def train_torch(model, X, y, *, lr, weight_decay, batch_size, max_epochs, patience, inner_frac,
@@ -110,8 +143,9 @@ def train_torch(model, X, y, *, lr, weight_decay, batch_size, max_epochs, patien
     Returns the model with the weights of its best epoch (highest inner hold-out macro-F1) and a
     per-epoch history list.
     """
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)                 # also seeds every GPU
     rng = np.random.default_rng(seed)
+    model = model.to(DEVICE)
     idx_fit, idx_es = train_test_split(np.arange(len(y)), test_size=inner_frac,
                                        stratify=y, random_state=seed)
     X_fit, y_fit, X_es, y_es = X[idx_fit], y[idx_fit], X[idx_es], y[idx_es]
@@ -187,7 +221,8 @@ class Classifier:
         if self.arch == "mlp":
             net = SparseMLP(V, self.hp["hidden"], self.K, dropout=self.hp["dropout"])
         else:
-            net = DeepSparseMLP(V, tuple(self.hp["hidden"]), self.K, dropout=self.hp["dropout"])
+            net = DeepSparseMLP(V, tuple(self.hp["hidden"]), self.K, dropout=self.hp["dropout"],
+                                input_dropout=self.hp["input_dropout"], rezero=self.hp["rezero"])
         self.model, self.history = train_torch(net, X, y, seed=self.seed, verbose=self.verbose, **self.hp)
         return self
 

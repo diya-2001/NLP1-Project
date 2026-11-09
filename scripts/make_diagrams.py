@@ -151,8 +151,8 @@ def architectures():
         ("A2 · MLP (tutorial)", style.ARCH_COLORS["mlp"], [("input h(x)", V), ("hidden + ReLU", 128)], "mlp",
          "hidden layer = 128 learned 'feature\ndetectors' that combine tokens"),
         ("A3 · deeper MLP (ours)", style.ARCH_COLORS["deep"],
-         [("input h(x)", V), ("hidden + ReLU", 256), ("hidden + ReLU", 128)], "deep",
-         "a second hidden layer combines\nthe detectors once more"),
+         [("input h(x), 20% tokens hidden", V), ("hidden + LayerNorm, ReLU", 128), ("+ residual layer", 128)], "deep",
+         "a second layer of detectors is ADDED to\nthe first (shortcut): it can fall back to the MLP"),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(13, 5.2))
     for ax, (title, col, layers, arch, note) in zip(axes, specs):

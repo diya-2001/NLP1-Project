@@ -5,7 +5,8 @@ All numbers come from `notebooks/bias-in-bios-week1.ipynb` (3 folds × 2 seeds, 
 ## The 30-second story
 We predict 28 occupations from bios. **Macro-F1** is the main score, because professor is 30% of the data.
 **Best system: MLP + TF-IDF, 0.754.** One hidden layer helps (+0.02–0.03) unless TF-IDF is used; with TF-IDF the
-log-linear model is practically as good (0.749). A second hidden layer doesn't help. Indicators ≈ counts.
+log-linear model is practically as good (0.749). Our deeper MLP (second layer with a shortcut and LayerNorm) matches
+the MLP but doesn't beat it. Indicators ≈ counts.
 Every system **amplifies gender imbalance**: the recall gap follows % women with r ≈ 0.86. Deleting pronouns costs no
 accuracy and cuts the RMS gap by 22%, but doesn't remove it.
 
@@ -116,12 +117,25 @@ easy to inspect.
 
 **Deeper MLP (ours), why?**
 The brief suggests modifying the MLP. We wanted to know whether more combining power separates overlapping jobs.
-2.6M weights, dropout 0.3.
-Result: no. It's worse than the MLP (on TF-IDF −0.025, clearly).
+Design: sparse 10,000 → 128 (LayerNorm, ReLU), then a second 128 → 128 layer whose output is *added* to the first
+(residual shortcut, LayerNorm, dropout 0.3, ReZero: it starts switched off), and 20% of each bio's tokens hidden during
+training. 1,300,765 weights, only 17k more than the MLP.
+Result: practically equal to the MLP on indicators (−0.005) and counts (0.000); unsure on TF-IDF (−0.010). Mean 0.745 vs 0.750.
 
-**Why did depth not help?**
-It overfits faster (best epoch 2 vs 1 for the MLP), and with bag-of-words input there's little extra structure to
-exploit.
+**Why the redesign? (the story to tell)**
+Our first version (plain 256 → 128 stack, 2.6M weights) scored below the MLP (mean 0.735; TF-IDF 0.730 vs 0.754).
+Diagnosis: TF-IDF rows have length 1 (counts ≈ 9.7), so the bio's signal reaching layer 2 was tiny next to the
+biases. Fixes: LayerNorm (same behaviour whatever the input scale) and a shortcut (it can fall back to the MLP).
+That closed most of the gap; token dropout barely mattered (one-split check, [5b+]).
+
+**What do LayerNorm, a residual shortcut and ReZero do?**
+LayerNorm rescales each bio's hidden numbers to mean 0 and spread 1. A residual shortcut adds a layer's output to its
+input (z₂ = z₁ + f(z₁)), so the extra layer only has to learn a correction. ReZero multiplies that correction by a
+learned α that starts at 0, so training starts from exactly the MLP.
+
+**Why does a second layer still not beat one?**
+A bag of words has no order or structure for a second layer to exploit beyond the combinations one layer already
+learns; both models overfit within 1–3 epochs.
 
 **Early stopping, why an inner hold-out?**
 The tutorial picks the best epoch on the validation fold and reports that same fold, which is optimistic. We hold
@@ -137,7 +151,8 @@ It's our metric; the loss is dominated by big classes (≈ 0.02 worse in a pilot
 Chosen on a 90/10 split of fold 0's training part. Results:
 - `C` = 0.3 for indicators and counts, but 3 for TF-IDF (its values are small, so it needs a weaker penalty);
   `C` = 0.3 on TF-IDF would score 0.69 instead of 0.76;
-- learning rate 0.001, except 0.003 for deep_tfidf.
+- learning rate 0.001 for both neural models and all representations (with LayerNorm, the input scale no longer
+  matters for the deeper MLP).
 
 **Convergence?**
 `loglin_bow` didn't fully converge in 500 iterations (a limitation); the others did.
@@ -164,7 +179,7 @@ The folds share training data, so their scores aren't independent; the method in
 
 **Why a ROPE of 0.01?**
 - Practical: one macro-F1 point is a change you'd notice and act on.
-- It's 4× the median fold std (0.0025).
+- It's about 3× the median fold std (0.0031).
 - The tutorial uses 0.005 for accuracy, and macro-F1 is noisier.
 - Sensitivity: main conclusions hold for 0.005 and 0.02.
 
@@ -175,14 +190,15 @@ a significance test can't.
 **Key verdicts:**
 - MLP > log-linear on indicators (+0.021) and counts (+0.028);
 - MLP = log-linear on TF-IDF (+0.005, P(equal) 0.998);
-- MLP > deeper MLP on TF-IDF;
+- deeper MLP = MLP on indicators and counts; unsure on TF-IDF (−0.010);
+- deeper MLP > log-linear on indicators (+0.017) and counts (+0.027);
 - indicator = counts everywhere;
 - TF-IDF > others for log-linear.
 
 ## Fairness (§10, §11)
 
 **Main finding?**
-The gap follows % women, r = 0.86 for the best system (0.82–0.90 for all 9).
+The gap follows % women, r = 0.86 for the best system (0.83–0.90 for all 9).
 - model +0.49 (women 0.84 vs men 0.35); dietitian +0.32; paralegal +0.24;
 - surgeon −0.21 (women 0.48 vs men 0.68); rapper −0.21.
 
@@ -208,8 +224,9 @@ Log-linear weight(she) − weight(he) follows % women with r = 0.96. The top wor
 is a steady secondary nudge.
 
 **Which system is fairest?**
-The neural ones are slightly better (RMS 0.146–0.160 vs 0.159–0.168); deep_tfidf is lowest at 0.146. The
-differences are small and untested.
+The deeper MLP has the smallest gaps (RMS 0.142 on TF-IDF, 0.149, 0.156), then the MLP (0.149–0.160), then
+log-linear (0.159–0.168). Possible reasons: TF-IDF down-weights pronouns, and hiding tokens in training stops the
+model leaning on any single word. The differences are small and untested.
 
 **Limitations:**
 - binary inferred gender;
