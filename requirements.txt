@@ -14,4 +14,7 @@ tqdm
 ipywidgets
 baycomp
 certifi
--e .
+jax
+numpyro
+arviz
+textstat
