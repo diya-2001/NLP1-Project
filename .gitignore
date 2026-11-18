@@ -12,3 +12,5 @@ results/
 *.pickle
 # macOS
 .DS_Store
+# downloaded resources (pretrained embeddings etc.)
+data/

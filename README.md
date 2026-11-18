@@ -20,8 +20,8 @@ everything runs on the CPU (about 40 minutes for the full notebook on an Apple M
 
 ## Run
 
-- **Main notebook:** `notebooks/bias-in-bios-week1.ipynb`. Run top to bottom; results are cached in
-  `results/week1/` (git-ignored), so re-running loads them instead of retraining.
+- **Main notebook:** `notebooks/bias-in-bios-part1.ipynb`. Run top to bottom; results are cached in
+  `results/part1/` (git-ignored), so re-running loads them instead of retraining.
 - **Only the 3 × 3 grid, from a terminal:** `python scripts/run_grid.py` (needs the splits, tokenizer and
   tuned settings the notebook writes first).
 - **Explanatory diagrams:** `python scripts/make_diagrams.py`.
@@ -34,9 +34,9 @@ everything runs on the CPU (about 40 minutes for the full notebook on an Apple M
 | `src/bib/` | our code: tokenizer, representations, models, tuning, metrics, cross-validation, scrubbing, plots |
 | `src/part1/` | the course tutorial's code and notebooks (unchanged) |
 | `scripts/` | grid runner and diagram generator |
-| `figures/week1/` | all figures (PNG) produced by the notebook, plus `diagrams/` |
+| `figures/part1/` | all figures (PNG) produced by the notebook, plus `diagrams/` |
 | `docs/` | `oral_prep.md` (likely oral questions), `ai_assistance_log.md` (AI use), `guides/` (PDF study guides for the oral: full and quick versions, project and tutorial), `reference/` (the paper) |
-| `results/week1/` | cached tokenizer, folds, tuning and CV results (not in git) |
+| `results/part1/` | cached tokenizer, folds, tuning and CV results (not in git) |
 
 ## AI assistance
 

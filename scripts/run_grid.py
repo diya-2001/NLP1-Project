@@ -5,8 +5,8 @@
     python scripts/run_grid.py --archs loglin  # only one column of the grid
     python scripts/run_grid.py --rerun         # ignore caches
 
-Needs (all produced by the notebook): results/week1/splits.json, the BPE tokenizer json and
-results/week1/tuned_hparams.json (§5). Results go to results/week1/{arch}_{rep}.pkl, which §7/§8
+Needs (all produced by the notebook): results/part1/splits.json, the BPE tokenizer json and
+results/part1/tuned_hparams.json (§5). Results go to results/part1/{arch}_{rep}.pkl, which §7/§8
 of the notebook simply load.
 """
 import argparse
@@ -20,7 +20,7 @@ from bib import cv, data, encoders, models, tuning
 from bib import tokenizer as btok
 
 ROOT = Path(__file__).resolve().parents[1]
-RESULTS = ROOT / "results" / "week1"
+RESULTS = ROOT / "results" / "part1"
 TOKENIZER = RESULTS / "bpe_lower_punct_v10000_mf5.json"
 
 if __name__ == "__main__":

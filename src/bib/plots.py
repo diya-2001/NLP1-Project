@@ -221,12 +221,16 @@ def idf_bars(idf: pd.Series, pronouns: list, job_tokens: list, title: str, sub: 
 
 
 # =============================================================================== §5 architectures
-def training_curves(histories: dict):
-    """``histories`` = {arch: list of per-epoch dicts from models.train_torch}."""
+def training_curves(histories: dict, colors: dict | None = None, titles: tuple | None = None):
+    """``histories`` = {name: list of per-epoch dicts from a training loop}; Part 1 names are architectures.
+
+    colors: {name: colour} (default: Part 1's architecture colours); titles: ((left, sub), (right, sub)).
+    """
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    colors = colors or style.ARCH_COLORS
     for arch, hist in histories.items():
         h = pd.DataFrame(hist)
-        col = style.ARCH_COLORS[arch]
+        col = colors.get(arch, style.ACCENT)
         axes[0].plot(h["epoch"], h["train_loss"], color=col, lw=2, label=f"{arch}: training data")
         axes[0].plot(h["epoch"], h["holdout_loss"], color=col, lw=2, ls="--", label=f"{arch}: hold-out")
         axes[1].plot(h["epoch"], h["holdout_macro_f1"], color=col, lw=2, marker="o", label=arch)
@@ -237,8 +241,10 @@ def training_curves(histories: dict):
     axes[1].set(xlabel="epoch", ylabel="hold-out macro-F1")
     axes[0].legend()
     axes[1].legend()
-    style.title(axes[0], "Loss on training data keeps falling; on hold-out it stalls", "the gap = overfitting (memorising)")
-    style.title(axes[1], "Early stopping keeps the best epoch (circled)", "measured on the inner 10% hold-out")
+    titles = titles or (("Loss on training data keeps falling; on hold-out it stalls", "the gap = overfitting (memorising)"),
+                        ("Early stopping keeps the best epoch (circled)", "measured on the inner 10% hold-out"))
+    style.title(axes[0], *titles[0])
+    style.title(axes[1], *titles[1])
     fig.tight_layout()
     return fig
 
@@ -285,7 +291,8 @@ def fold_scores(scores: pd.DataFrame, order, title: str, sub: str, metric="macro
 
 
 def grid_heatmap(table: pd.DataFrame, title: str, sub: str, fmt="{:.3f}"):
-    """3x3 heatmap (rows = representations, columns = architectures) with the values written in."""
+    """Heatmap with the values written in (Part 1: rows = representations, columns = architectures;
+    other row/column names are shown as they are)."""
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     vals = table.to_numpy(dtype=float)
     ax.imshow(vals, cmap=style.BLUES, vmin=vals.min() - (vals.max() - vals.min()) * 0.6, vmax=vals.max())
@@ -294,8 +301,8 @@ def grid_heatmap(table: pd.DataFrame, title: str, sub: str, fmt="{:.3f}"):
             dark = (vals[i, j] - vals.min()) / max(vals.max() - vals.min(), 1e-9) > 0.55
             ax.text(j, i, fmt.format(vals[i, j]), ha="center", va="center", fontsize=12,
                     weight="bold" if vals[i, j] == vals.max() else "normal", color="white" if dark else style.INK)
-    ax.set_xticks(range(vals.shape[1]), [ARCH_LABEL[c] for c in table.columns])
-    ax.set_yticks(range(vals.shape[0]), [REP_LABEL[r] for r in table.index])
+    ax.set_xticks(range(vals.shape[1]), [ARCH_LABEL.get(c, c) for c in table.columns])
+    ax.set_yticks(range(vals.shape[0]), [REP_LABEL.get(r, r) for r in table.index])
     ax.grid(False)
     for s in ax.spines.values():
         s.set_visible(False)
@@ -416,5 +423,74 @@ def pronoun_weight_scatter(df: pd.DataFrame, title: str, sub: str):
     _label_points(ax, df["pct_female"], df["she_minus_he"], df.index)
     ax.set(xlim=(0, 100), xlabel="% of the occupation's bios that are women",
            ylabel="weight('she') − weight('he')")
+    style.title(ax, title, sub)
+    return fig
+
+
+# =============================================================================== Part 2
+def labeled_scatter(x, y, labels, title: str, sub: str, xlabel: str, ylabel: str, color_values=None,
+                    cmap=None, vmin=None, vmax=None, trend: bool = True, hline=None, nudge=None):
+    """One dot per item with its name next to it; optional colour scale, trend line and reference line."""
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+    if hline is not None:
+        ax.axhline(hline, color=style.BASELINE, lw=1.2)
+    if color_values is not None:
+        ax.scatter(x, y, s=70, c=color_values, cmap=cmap, vmin=vmin, vmax=vmax, edgecolor=style.MUTED, lw=0.6, zorder=3)
+    else:
+        ax.scatter(x, y, s=60, color=style.ACCENT, edgecolor="white", lw=1.5, zorder=3)
+    if trend:
+        slope, icept = np.polyfit(x, y, 1)
+        xs = np.array([x.min(), x.max()])
+        ax.plot(xs, icept + slope * xs, color=style.INK_2, lw=1, ls=":")
+    _label_points(ax, x, y, list(labels), nudge)
+    ax.set(xlabel=xlabel, ylabel=ylabel)
+    style.title(ax, title, sub)
+    return fig
+
+
+# =============================================================================== Part 2
+def fold_strip(scores: pd.DataFrame, order, title: str, sub: str, colors: dict | None = None, ref: float | None = None,
+               ref_label: str = "", metric: str = "macro_f1", labels: dict | None = None):
+    """One column per system: its 6 fold scores as dots, the mean as a black bar (value written above).
+
+    colors: {system: colour}; ref: a horizontal reference line (e.g. Part 1's best mean).
+    """
+    fig, ax = plt.subplots(figsize=(max(7.0, 1.15 * len(order) + 2), 4.8))
+    rng = np.random.default_rng(0)
+    for i, name in enumerate(order):
+        v = scores.loc[scores["system"] == name, metric].to_numpy()
+        ax.scatter(i + rng.uniform(-0.15, 0.15, len(v)), v, s=34, color=(colors or {}).get(name, style.ACCENT),
+                   alpha=0.9, edgecolor="white", lw=0.8, zorder=3)
+        ax.hlines(v.mean(), i - 0.28, i + 0.28, color=style.INK, lw=2, zorder=4)
+        ax.text(i, v.max() + 0.002, f"{v.mean():.3f}", ha="center", va="bottom", fontsize=8.5, color=style.INK_2)
+    if ref is not None:
+        ax.axhline(ref, color=style.INK_2, lw=1, ls="--", zorder=1)
+        ax.text(len(order) - 0.5, ref, f" {ref_label}", va="bottom", ha="right", fontsize=8.5, color=style.INK_2)
+    ax.set_xticks(range(len(order)), [(labels or {}).get(n, n).replace("-", "\n") for n in order])
+    ax.grid(axis="x", visible=False)
+    ax.set(ylabel=f"{metric.replace('_', '-')} (validation fold)")
+    style.title(ax, title, sub)
+    return fig
+
+
+def data_size_lines(table: pd.DataFrame, title: str, sub: str, colors: dict | None = None):
+    """One line per system family: mean macro-F1 (dot) ± std over splits (whisker) against % of training data.
+
+    table: columns ``family``, ``pct`` (share of each training fold used, %), ``mean``, ``std``.
+    """
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    for fam, t in table.groupby("family", sort=False):
+        t = t.sort_values("pct")
+        col = (colors or {}).get(fam, style.ACCENT)
+        ax.errorbar(t["pct"], t["mean"], yerr=t["std"], color=col, lw=2, marker="o", ms=6, capsize=3, label=fam)
+        ax.annotate(f"{t['mean'].iloc[-1]:.3f}", (t["pct"].iloc[-1], t["mean"].iloc[-1]), xytext=(6, 0),
+                    textcoords="offset points", va="center", fontsize=8.5, color=col)
+    ax.set_xscale("log")
+    ticks = sorted(table["pct"].unique())
+    ax.set_xticks(ticks, [f"{p:g}%" for p in ticks])
+    ax.minorticks_off()
+    ax.set(xlabel="share of each training fold used (log scale)", ylabel="macro-F1 (validation fold)")
+    ax.legend(loc="lower right")
     style.title(ax, title, sub)
     return fig

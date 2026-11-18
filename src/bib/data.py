@@ -1,4 +1,4 @@
-"""Rebuild the exact CV pool and folds from ``results/week1/splits.json`` (used by scripts/run_grid.py).
+"""Rebuild the exact CV pool and folds from ``results/part1/splits.json`` (used by scripts/run_grid.py).
 
 The notebook builds the pool in §2 and saves the original ``train`` row ids plus each seed's
 validation folds. Anything that needs the same data later (a script, a teammate) calls

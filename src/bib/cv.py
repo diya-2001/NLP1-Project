@@ -1,7 +1,7 @@
 """Cross-validation runner with on-disk caching.
 
 ``run_system(rep, arch, C, Y, folds, ...)`` trains one system on every (seed, fold), and returns
-and caches to ``results/week1/{arch}_{rep}.pkl``:
+and caches to ``results/part1/{arch}_{rep}.pkl``:
   scores : DataFrame, one row per (seed, fold): macro_f1, accuracy, balanced_accuracy, seconds, ...
   oof    : {seed: array of out-of-fold predictions}  (every pool bio predicted exactly once per seed)
   history: training curves per (seed, fold)

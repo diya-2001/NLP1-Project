@@ -2,7 +2,7 @@
 
     python scripts/make_diagrams.py
 
-Writes PNGs to figures/week1/diagrams/. The representations diagram uses our trained BPE tokenizer
+Writes PNGs to figures/part1/diagrams/. The representations diagram uses our trained BPE tokenizer
 and real document frequencies from deduplicated `train`, so run the notebook up to §3 first.
 """
 from pathlib import Path
@@ -14,8 +14,8 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 from bib import style
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "figures" / "week1" / "diagrams"
-TOKENIZER = ROOT / "results" / "week1" / "bpe_lower_punct_v10000_mf5.json"
+OUT = ROOT / "figures" / "part1" / "diagrams"
+TOKENIZER = ROOT / "results" / "part1" / "bpe_lower_punct_v10000_mf5.json"
 style.apply()
 
 
